@@ -1,6 +1,5 @@
 #!/bin/bash
 ZipLoc=$1
-OutputDIR=$2
 # Function for HBCD spec2nii BIDS conversion on raw data. This function will take an appropriately named zip file:
 #	1) Extract the file to the current work directory
 # 2) Identify format from files
@@ -18,8 +17,7 @@ OutputDIR=$2
 #
 # DEPENDENCIES:
 # Python packages
-# spec2nii v0.6.1 (https://github.com/wtclarke/spec2nii)
-# fsl-mrs v1.1.2 (https://open.win.ox.ac.uk/pages/fsl/fsl_mrs/install.html)
+# spec2nii v0.6.5 (https://github.com/wtclarke/spec2nii)
 #
 # other packages
 # Non unix OS users need to install the following package to expand tar and zip archives:
@@ -36,12 +34,6 @@ OutputDIR=$2
 # first version C.W.Davies-Jenkins, Johns Hopkins 2023
 # modifed by Helge Zollner, Johns Hopkins 01-21-23
 
-# Create output directory
-mkdir -p $OutputDIR
-
-# Directory for temporary files:
-Staging=$OutputDIR
-Staging="$Staging"/temp/
 
 # Extract info from zip file name
 ZipName=$(basename -- "$ZipLoc")
@@ -56,8 +48,16 @@ PSCID=${ZipSplit[0]}
 DCCID=${ZipSplit[1]}
 VisitID=${ZipSplit[2]}
 
+# Create output directory
+OutputDIR="$2"/sub-"$DCCID"/ses-"$VisitID"/mrs
+mkdir -p $OutputDIR
+
+# Directory for temporary files:
+Staging=$OutputDIR
+Staging="$Staging"/temp/
+
 # Unarchive the file (works for zip and tar):
-unar $ZipLoc -o $Staging -f
+unar $ZipLoc -o $Staging -f -d
 
 # Save path to top level directory
 TopLevelDIR=$Staging
@@ -90,20 +90,32 @@ do
      if ! [[ $file == "Classic_DICOM.zip" ]]; then
        Format="data"
        path="$Staging"/unar
-       unar $f -o $path -f -d #unar $f -o $path -f -D
+       unar "$f" -o $path -f -d
        # Move .data/.list pair in temporary directory
         for dl in $(find "$path" -type f -name "*.list");
         do
-          mv -f "$dl" "$TopLevelDIR"/HYPER.list
+          tempfile=${dl##*/}
+          ini=${tempfile:0:1}
+          if ! [[ $ini == "." ]] ; then
+            mv -f "$dl" "$TopLevelDIR"/HYPER.list
+          fi
         done;
         for dl in $(find "$path" -type f -name "*.data");
         do
-          mv -f "$dl" "$TopLevelDIR"/HYPER.data
+          tempfile=${dl##*/}
+          ini=${tempfile:0:1}
+          if ! [[ $ini == "." ]] ; then
+            mv -f "$dl" "$TopLevelDIR"/HYPER.data
+          fi
         done;
         # Find dcmtxtdump and convert to DICOM
-        for tx in $(find "$path" -type f -name "*.txt");
+        for tx in $(find "$Staging" -type f -name "*.txt");
         do
-          mv -f "$tx" "$TopLevelDIR"/dcmdump.txt
+          tempfile=${tx##*/}
+          ini=${tempfile:0:1}
+          if ! [[ $ini == "." ]] ; then
+            mv -f "$tx" "$TopLevelDIR"/dcmdump.txt
+          fi
         done;
         txt="$TopLevelDIR"/dcmdump.txt
         dcm="$TopLevelDIR"/dcmdump.dcm
@@ -124,6 +136,7 @@ echo Temp dir: $Staging
 echo PSCID: $PSCID
 echo DCCID: $DCCID
 echo VisitID: $VisitID
+
 
 # Unable to parse format from files ... skip to end
 if [ $Format == "none" ]; then
@@ -290,7 +303,7 @@ do
     fi
 
     # NAMING CONVENTION FOR OUTPUT DATA
-    BIDS_NAME=/sub-"$PSCID""$DCCID"_ses-"$VisitID"_acq-"$Acq"_"$Suff".nii.gz
+    BIDS_NAME=/sub-"$DCCID"_ses-"$VisitID"_acq-"$Acq"_"$Suff".nii.gz
     OutFile="$OutputDIR"/"$BIDS_NAME"
 
     if ! [[ $f == *"NOI"* ]]; then
@@ -300,7 +313,7 @@ do
         # Extract JSON sidecar and anonomize the NIfTI data:
         eval "spec2nii anon $OutFile -o $OutputDIR"
         eval "spec2nii extract $OutFile"
-        JSON_BIDS_NAME=/sub-"$PSCID""$DCCID"_ses-"$VisitID"_acq-"$Acq"_"$Suff".json
+        JSON_BIDS_NAME=/sub-"$DCCID"_ses-"$VisitID"_acq-"$Acq"_"$Suff".json
         JsonOutFile="$OutputDIR"/"$JSON_BIDS_NAME"
         nTE=0
         if [[ $Acq == *"shortTE"* ]] && ! [[ $TE == *"0.035"* ]]; then
@@ -333,7 +346,7 @@ python -c "$PYCMD"
 
       else
         Acq="hercules"
-        BIDS_NAME=/sub-"$PSCID""$DCCID"_ses-"$VisitID"_acq-"$Acq"_"$Suff".nii.gz
+        BIDS_NAME=/sub-"$DCCID"_ses-"$VisitID"_acq-"$Acq"_"$Suff".nii.gz
         OutFile="$OutputDIR"/"$BIDS_NAME"
         sp="$TopLevelDIR"/HYPER_hyper_water_ref_selected.nii.gz
         # Move NIfTI to output folder
@@ -341,7 +354,7 @@ python -c "$PYCMD"
         # Extract JSON sidecar and anonomize the NIfTI data:
         eval "spec2nii anon $OutFile -o $OutputDIR"
         eval "spec2nii extract $OutFile"
-        JSON_BIDS_NAME=/sub-"$PSCID""$DCCID"_ses-"$VisitID"_acq-"$Acq"_"$Suff".json
+        JSON_BIDS_NAME=/sub-"$DCCID"_ses-"$VisitID"_acq-"$Acq"_"$Suff".json
         JsonOutFile="$OutputDIR"/"$JSON_BIDS_NAME"
         nTE=0
         if [[ $Acq == *"shortTE"* ]] && ! [[ $TE == *"0.035"* ]]; then
@@ -370,7 +383,7 @@ python -c "$PYCMD"
         fi
 
         Acq="shortTE"
-        BIDS_NAME=/sub-"$PSCID""$DCCID"_ses-"$VisitID"_acq-"$Acq"_"$Suff".nii.gz
+        BIDS_NAME=/sub-"$DCCID"_ses-"$VisitID"_acq-"$Acq"_"$Suff".nii.gz
         OutFile="$OutputDIR"/"$BIDS_NAME"
         sp="$TopLevelDIR"/HYPER_hyper_water_ref_others.nii.gz
         # Move NIfTI to output folder
@@ -378,7 +391,7 @@ python -c "$PYCMD"
         # Extract JSON sidecar and anonomize the NIfTI data:
         eval "spec2nii anon $OutFile -o $OutputDIR"
         eval "spec2nii extract $OutFile"
-        JSON_BIDS_NAME=/sub-"$PSCID""$DCCID"_ses-"$VisitID"_acq-"$Acq"_"$Suff".json
+        JSON_BIDS_NAME=/sub-"$DCCID"_ses-"$VisitID"_acq-"$Acq"_"$Suff".json
         JsonOutFile="$OutputDIR"/"$JSON_BIDS_NAME"
         nTE=0
         if [[ $Acq == *"shortTE"* ]] && ! [[ $TE == *"0.035"* ]]; then
@@ -415,13 +428,50 @@ no_files=$((no_files-1))
 # Some cleanup:
 rm -r -f "$Staging"
 
+# Validate the anonymization
+for f in $(find "$OutputDIR" -type f -name "*.nii.gz");
+do
+  file=${f##*/}
+  ini=${file:0:1}
+  if ! [[ $ini == "." ]] ; then
+    # Get header dump from NIfTI file and convert to array:
+    Dump=$(eval "spec2nii dump $f")
+    IFS=$'\n'
+    array=($Dump)
+    unset IFS;
+
+    # Initialize relevant dimension variables:
+    anon=1
+    # Loop over array to grab for individual fields
+    for i in "${array[@]}"
+    do
+     if [[ $i == *"PatientDoB"* ]]; then
+	    anon=0
+    elif [[ $i == *"PatientName"* ]]; then
+	    anon=0
+	    fi
+    done
+  fi
+done
+
 # Final message
 if (( $no_files == 4 ));then
   echo Success! 4 nii files generated.
+  exitcode=1
 fi
 if (( $no_files < 4 ));then
   echo Warning! $no_files nii files generated. Check MRS archive.
+  exitcode=0
 fi
 if (( $no_files > 4 ));then
   echo Warning! $no_files nii files generated but we expect only 4. Ensure correct job setup.
+  exitcode=0
 fi
+if (( $anon == 1 ));then
+  echo De-identification successful.
+else
+  echo De-identification failed.
+  exitcode=2
+fi
+# Exit code 1 == success, 0 == wrong number of files, 2 == de-idenfication failed
+echo $exitcode
