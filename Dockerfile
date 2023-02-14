@@ -2,7 +2,7 @@
 FROM python:3.9.16-slim-bullseye
 
 # Installation for dcmtk
-RUN apt update && apt upgrade
+RUN apt update -y && apt upgrade -y
 RUN apt-get -y install curl
 RUN apt install dcmtk -y
 
