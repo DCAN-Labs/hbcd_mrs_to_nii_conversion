@@ -25,7 +25,7 @@ RUN mkdir /code
 #SHELL ["conda", "run", "-n", "myenv", "/bin/bash", "-c"] #THIS MIGHT BE NECESSARY
 #RUN echo "source activate myenv" > ~/.bashrc 
 #RUN conda init bash --system
-RUN pip install spec2nii==0.6.1
+RUN pip install spec2nii==0.6.5
 
 #NEW LINE
 #SHELL ["conda", "run", "-n", "myenv", "/bin/bash", "-c"]
