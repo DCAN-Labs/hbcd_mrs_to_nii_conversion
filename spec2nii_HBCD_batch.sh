@@ -2,7 +2,7 @@
 ZipLoc=$1
 # Function for HBCD spec2nii BIDS conversion on raw data. This function will take an appropriately named zip file:
 #	1) Extract the file to the current work directory
-# 2) Identify format from files
+# 	2) Identify format from files
 #	2) Loop over the files running spec2nii
 #	3) Use NIfTI header info to identify the acquisitions
 #	4) Check dimensions of the HERCULES data and separate HYPER water
@@ -208,6 +208,10 @@ do
 done;
 
 # Separate loop for json dump and anonomize
+
+# Declare an empty list of generated Filenames. (ensures no repeated names)
+declare -a Filenames=()
+
 # Initialize number of files:
 no_files=1
 for f in $(find "$TopLevelDIR" -type f -name "*.nii.gz");
@@ -295,15 +299,18 @@ do
       fi
     fi
 
-    if (( $no_files > 4 )); then
-      AddSuff=$((no_files-4))
-      echo Add Suffix $AddSuff
-      Suff="$Suff"-"$AddSuff"
-      echo New Suff: $Suff
-    fi
-
     # NAMING CONVENTION FOR OUTPUT DATA
-    BIDS_NAME=/sub-"$DCCID"_ses-"$VisitID"_acq-"$Acq"_"$Suff".nii.gz
+    # Initialize run counter:
+    Counter=1
+    BIDS_NAME=/sub-"$DCCID"_ses-"$VisitID"_acq-"$Acq"_"run-$Counter"_"$Suff".nii.gz
+
+    # If filename is already generated, then iterate the run counter and update filename:
+    while [[ "${Filenames[*]}" =~ "${BIDS_NAME}" ]]; do
+      ((Counter+=Counter))
+      BIDS_NAME=/sub-"$DCCID"_ses-"$VisitID"_acq-"$Acq"_"run-$Counter"_"$Suff".nii.gz
+    done
+    Filenames+=("${BIDS_NAME}")
+	
     OutFile="$OutputDIR"/"$BIDS_NAME"
 
     if ! [[ $f == *"NOI"* ]]; then
@@ -313,7 +320,7 @@ do
         # Extract JSON sidecar and anonomize the NIfTI data:
         eval "spec2nii anon $OutFile -o $OutputDIR"
         eval "spec2nii extract $OutFile"
-        JSON_BIDS_NAME=/sub-"$DCCID"_ses-"$VisitID"_acq-"$Acq"_"$Suff".json
+        JSON_BIDS_NAME=/sub-"$DCCID"_ses-"$VisitID"_acq-"$Acq"_"run-$Counter"_"$Suff".json
         JsonOutFile="$OutputDIR"/"$JSON_BIDS_NAME"
         nTE=0
         if [[ $Acq == *"shortTE"* ]] && ! [[ $TE == *"0.035"* ]]; then
@@ -346,7 +353,7 @@ python -c "$PYCMD"
 
       else
         Acq="hercules"
-        BIDS_NAME=/sub-"$DCCID"_ses-"$VisitID"_acq-"$Acq"_"$Suff".nii.gz
+	BIDS_NAME=/sub-"$DCCID"_ses-"$VisitID"_acq-"$Acq"_"run-$Counter"_"$Suff".nii.gz
         OutFile="$OutputDIR"/"$BIDS_NAME"
         sp="$TopLevelDIR"/HYPER_hyper_water_ref_selected.nii.gz
         # Move NIfTI to output folder
@@ -354,7 +361,7 @@ python -c "$PYCMD"
         # Extract JSON sidecar and anonomize the NIfTI data:
         eval "spec2nii anon $OutFile -o $OutputDIR"
         eval "spec2nii extract $OutFile"
-        JSON_BIDS_NAME=/sub-"$DCCID"_ses-"$VisitID"_acq-"$Acq"_"$Suff".json
+        JSON+BIDS_NAME=/sub-"$DCCID"_ses-"$VisitID"_acq-"$Acq"_"run-$Counter"_"$Suff".json
         JsonOutFile="$OutputDIR"/"$JSON_BIDS_NAME"
         nTE=0
         if [[ $Acq == *"shortTE"* ]] && ! [[ $TE == *"0.035"* ]]; then
@@ -383,7 +390,7 @@ python -c "$PYCMD"
         fi
 
         Acq="shortTE"
-        BIDS_NAME=/sub-"$DCCID"_ses-"$VisitID"_acq-"$Acq"_"$Suff".nii.gz
+	BIDS_NAME=/sub-"$DCCID"_ses-"$VisitID"_acq-"$Acq"_"run-$Counter"_"$Suff".nii.gz
         OutFile="$OutputDIR"/"$BIDS_NAME"
         sp="$TopLevelDIR"/HYPER_hyper_water_ref_others.nii.gz
         # Move NIfTI to output folder
@@ -391,7 +398,7 @@ python -c "$PYCMD"
         # Extract JSON sidecar and anonomize the NIfTI data:
         eval "spec2nii anon $OutFile -o $OutputDIR"
         eval "spec2nii extract $OutFile"
-        JSON_BIDS_NAME=/sub-"$DCCID"_ses-"$VisitID"_acq-"$Acq"_"$Suff".json
+        JSON_BIDS_NAME=/sub-"$DCCID"_ses-"$VisitID"_acq-"$Acq"_"run-$Counter"_"$Suff".json
         JsonOutFile="$OutputDIR"/"$JSON_BIDS_NAME"
         nTE=0
         if [[ $Acq == *"shortTE"* ]] && ! [[ $TE == *"0.035"* ]]; then
@@ -421,6 +428,22 @@ python -c "$PYCMD"
       fi
     fi
     no_files=$((no_files+1))
+
+# Add run number to the JSON:
+PYCMD=$(cat <<EOF
+import json
+jsonHeaderFile = open("$JsonOutFile")
+HeaderFileData = json.load(jsonHeaderFile)
+jsonHeaderFile.close()
+newHeader = {"run": $Counter}
+HeaderFileData.update(newHeader)
+file = open("$JsonOutFile", 'w+')
+json.dump(HeaderFileData, file, indent=4)
+file.close()
+EOF
+)
+    python -c "$PYCMD"
+    eval "spec2nii insert $OutFile $JsonOutFile -o $OutputDIR"
   fi
 done;
 no_files=$((no_files-1))
