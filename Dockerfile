@@ -5,6 +5,7 @@ FROM python:3.9.16-slim-bullseye
 RUN apt update -y && apt upgrade -y
 RUN apt-get -y install curl
 RUN apt install dcmtk -y
+RUN apt install wget -y
 
 # Installation for conda
 #RUN apt install gnupg -y
