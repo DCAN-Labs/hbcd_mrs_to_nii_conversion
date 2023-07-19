@@ -71,8 +71,6 @@ RUN rm /usr/local/lib/python3.9/site-packages/spec2nii.zip
 #RUN conda install -c conda-forge -c defaults -c https://fsl.fmrib.ox.ac.uk/fsldownloads/fslconda/public/ fsl_mrs
 
 
-RUN apt install -y unar
-
 COPY spec2nii_HBCD_batch.sh /code/run.sh
 
 #ENTRYPOINT ["bash", "/opt/conda/etc/profile.d/conda.sh", "activate", "&&", "bash", "/code/run.sh"]
