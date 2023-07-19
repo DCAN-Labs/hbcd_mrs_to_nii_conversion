@@ -188,6 +188,12 @@ do
   	    # Need to handle spar.
         FilePath="${f%$Ext}.SPAR"
         FilePath="$f $FilePath"
+        if [[ $f == *"act"* ]]; then
+          FilePath="$FilePath --special hyper"
+        fi
+        if [[ $f == *"ref"* ]]; then
+          FilePath="$FilePath --special hyper-ref"
+        fi
       elif [ $Format == "data" ] ;then
         FilePath="${f%$Ext}.list"
         FilePath="$f $FilePath $dcm"
@@ -260,12 +266,15 @@ do
 	    elif [[ $i == *"EDIT"* ]]; then
 		Edit=${i:6:1}
 	    fi
+    elif [[ $i == *"WaterSuppressed"* ]]; then
+      WatSup=${i#*:}
+	    WatSup=${WatSup::2}
         fi
     done
 
     # Use prot or filename to decide on acq;
     # Get suffix for hyper sequences
-    if [[ $f == *"HYPER"* ]]; then
+    if [[ $f == *"HYPER"* ]]||[[ $f == *"hyper"* ]]; then
       if [[ $f == *"short_te"* ]]; then
       	Acq="shortTE"
       elif [[ $f == *"edited"* ]]; then
@@ -299,6 +308,20 @@ do
       fi
     fi
 
+    # For GE data only
+    if [ $Format == "ge" ];then
+      if [[ $Prot == *"press"* ]] ||[[ $Prot == *"PRESS"* ]]; then
+        Acq="shortTE"
+      elif [[ $Prot == *"hermes"* ]] ||[[ $Prot == *"HERMES"* ]]; then
+        Acq="hercules"
+      fi
+      if [[ $WatSup == *"T"* ]]; then
+        Suff="svs"
+      else
+        Suff="ref"
+      fi
+    fi
+
     # NAMING CONVENTION FOR OUTPUT DATA
     # Initialize run counter:
     Counter=1
@@ -307,20 +330,24 @@ do
     # If filename is already generated, then iterate the run counter and update filename:
     while [[ "${Filenames[*]}" =~ "${BIDS_NAME}" ]]; do
       ((Counter+=Counter))
-      BIDS_NAME=/sub-"$DCCID"_ses-"$VisitID"_acq-"$Acq"_"run-$Counter"_"$Suff".nii.gz
+      BIDS_NAME=sub-"$DCCID"_ses-"$VisitID"_acq-"$Acq"_"run-$Counter"_"$Suff".nii.gz
     done
     Filenames+=("${BIDS_NAME}")
-	
-    OutFile="$OutputDIR"/"$BIDS_NAME"
 
+    OutFile="$OutputDIR"/"$BIDS_NAME"
+    # This is for Hyper data
     if ! [[ $f == *"NOI"* ]]; then
       if ! [[ $f == *"water"* ]]; then
+        # This is the part for Philips HYPER
+        if [ $Format == "data" ];then
+          echo "Hyper Philips Metabolites"
+        fi
         # Move NIfTI to output folder
         mv -f "$f" "$OutFile"
         # Extract JSON sidecar and anonomize the NIfTI data:
         eval "spec2nii anon $OutFile -o $OutputDIR"
         eval "spec2nii extract $OutFile"
-        JSON_BIDS_NAME=/sub-"$DCCID"_ses-"$VisitID"_acq-"$Acq"_"run-$Counter"_"$Suff".json
+        JSON_BIDS_NAME=sub-"$DCCID"_ses-"$VisitID"_acq-"$Acq"_"run-$Counter"_"$Suff".json
         JsonOutFile="$OutputDIR"/"$JSON_BIDS_NAME"
         nTE=0
         if [[ $Acq == *"shortTE"* ]] && ! [[ $TE == *"0.035"* ]]; then
@@ -338,7 +365,7 @@ import json
 jsonHeaderFile = open("$JsonOutFile")
 HeaderFileData = json.load(jsonHeaderFile)
 jsonHeaderFile.close()
-newEchoTime = {"EchoTime": $nTE}
+newEchoTime = {"EchoTime": $nTE, "WaterSuppressed": True}
 HeaderFileData.update(newEchoTime)
 file = open("$JsonOutFile", 'w+')
 json.dump(HeaderFileData, file, indent=4)
@@ -346,14 +373,132 @@ file.close()
 EOF
 )
 python -c "$PYCMD"
-
           # Overwrite orignial json header extension
           eval "spec2nii insert $OutFile $JsonOutFile -o $OutputDIR"
         fi
 
+
+# Update nii-header for Siemens Hyper Sequence if needed
+if [ $Format == "twix" ];then
+  echo "Hyper Siemens Metabolites"
+  if [[ $Prot == *"hyper"* ]]; then
+    # water reference
+    if [[ $Suff == *"ref"* ]]; then
+      Offset=0.0
+PYCMD=$(cat <<EOF
+import json
+jsonHeaderFile = open("$JsonOutFile")
+HeaderFileData = json.load(jsonHeaderFile)
+jsonHeaderFile.close()
+newParameter = {"TxOffset": $Offset, "dim_6": "DIM_DYN", "WaterSuppressed": False}
+HeaderFileData.update(newParameter)
+if "dim_6_info" in HeaderFileData: del HeaderFileData["dim_6_info"]
+if "dim_6_header" in HeaderFileData: del HeaderFileData["dim_6_header"]
+if "EditPulse" in HeaderFileData: del HeaderFileData["EditPulse"]
+file = open("$JsonOutFile", 'w+')
+json.dump(HeaderFileData, file, indent=4)
+file.close()
+EOF
+)
+    python -c "$PYCMD"
+    # Overwrite orignial json header extension
+    eval "spec2nii insert $OutFile $JsonOutFile -o $OutputDIR"
+    fi
+    # shortTE
+    if [[ $Acq == *"shortTE"* ]] && ! [[ $Suff == *"ref"* ]]; then
+PYCMD=$(cat <<EOF
+import json
+jsonHeaderFile = open("$JsonOutFile")
+HeaderFileData = json.load(jsonHeaderFile)
+jsonHeaderFile.close()
+newParameter = {"dim_6": "DIM_DYN"}
+HeaderFileData.update(newParameter)
+if "dim_6_info" in HeaderFileData: del HeaderFileData["dim_6_info"]
+if "dim_6_header" in HeaderFileData: del HeaderFileData["dim_6_header"]
+if "EditPulse" in HeaderFileData: del HeaderFileData["EditPulse"]
+file = open("$JsonOutFile", 'w+')
+json.dump(HeaderFileData, file, indent=4)
+file.close()
+EOF
+)
+    python -c "$PYCMD"
+    # Overwrite orignial json header extension
+    eval "spec2nii insert $OutFile $JsonOutFile -o $OutputDIR"
+    fi
+  fi
+fi
+
+# Update nii-header for GE HERCULES Sequence if needed
+if [ $Format == "ge" ];then
+  echo "GE Metabolites"
+  # water reference
+  if [[ $Suff == *"ref"* ]]; then
+      Offset=0.0
+      if [[ $Acq == *"shortTE"* ]]; then
+PYCMD=$(cat <<EOF
+import json
+jsonHeaderFile = open("$JsonOutFile")
+HeaderFileData = json.load(jsonHeaderFile)
+jsonHeaderFile.close()
+newParameter = {"TxOffset": $Offset, "dim_5": "DIM_DYN", "dim_6": "DIM_COIL", "WaterSuppressed": False}
+HeaderFileData.update(newParameter)
+if "dim_6_info" in HeaderFileData: del HeaderFileData["dim_6_info"]
+if "dim_6_header" in HeaderFileData: del HeaderFileData["dim_6_header"]
+if "EditPulse" in HeaderFileData: del HeaderFileData["EditPulse"]
+file = open("$JsonOutFile", 'w+')
+json.dump(HeaderFileData, file, indent=4)
+file.close()
+EOF
+)
+  else
+PYCMD=$(cat <<EOF
+import json
+jsonHeaderFile = open("$JsonOutFile")
+HeaderFileData = json.load(jsonHeaderFile)
+jsonHeaderFile.close()
+newParameter = {"TxOffset": $Offset, "WaterSuppressed": False}
+HeaderFileData.update(newParameter)
+if "dim_6_info" in HeaderFileData: del HeaderFileData["dim_6_info"]
+if "dim_6_header" in HeaderFileData: del HeaderFileData["dim_6_header"]
+if "EditPulse" in HeaderFileData: del HeaderFileData["EditPulse"]
+file = open("$JsonOutFile", 'w+')
+json.dump(HeaderFileData, file, indent=4)
+file.close()
+EOF
+)
+  fi
+  python -c "$PYCMD"
+  # Overwrite orignial json header extension
+  eval "spec2nii insert $OutFile $JsonOutFile -o $OutputDIR"
+  fi
+  # shortTE
+  if [[ $Acq == *"shortTE"* ]] && ! [[ $Suff == *"ref"* ]]; then
+PYCMD=$(cat <<EOF
+import json
+jsonHeaderFile = open("$JsonOutFile")
+HeaderFileData = json.load(jsonHeaderFile)
+jsonHeaderFile.close()
+newParameter = {"dim_5": "DIM_DYN", "dim_6": "DIM_COIL"}
+HeaderFileData.update(newParameter)
+if "dim_6_info" in HeaderFileData: del HeaderFileData["dim_6_info"]
+if "dim_6_header" in HeaderFileData: del HeaderFileData["dim_6_header"]
+if "EditPulse" in HeaderFileData: del HeaderFileData["EditPulse"]
+file = open("$JsonOutFile", 'w+')
+json.dump(HeaderFileData, file, indent=4)
+file.close()
+EOF
+)
+  python -c "$PYCMD"
+  # Overwrite orignial json header extension
+  eval "spec2nii insert $OutFile $JsonOutFile -o $OutputDIR"
+  fi
+fi
+
       else
+        echo "Hyper Philips Water"
+        echo "HERCULES Philips Water"
         Acq="hercules"
-	BIDS_NAME=/sub-"$DCCID"_ses-"$VisitID"_acq-"$Acq"_"run-$Counter"_"$Suff".nii.gz
+	      BIDS_NAME=sub-"$DCCID"_ses-"$VisitID"_acq-"$Acq"_"run-$Counter"_"$Suff".nii.gz
         OutFile="$OutputDIR"/"$BIDS_NAME"
         sp="$TopLevelDIR"/HYPER_hyper_water_ref_selected.nii.gz
         # Move NIfTI to output folder
@@ -361,7 +506,7 @@ python -c "$PYCMD"
         # Extract JSON sidecar and anonomize the NIfTI data:
         eval "spec2nii anon $OutFile -o $OutputDIR"
         eval "spec2nii extract $OutFile"
-        JSON+BIDS_NAME=/sub-"$DCCID"_ses-"$VisitID"_acq-"$Acq"_"run-$Counter"_"$Suff".json
+        JSON_BIDS_NAME=sub-"$DCCID"_ses-"$VisitID"_acq-"$Acq"_"run-$Counter"_"$Suff".json
         JsonOutFile="$OutputDIR"/"$JSON_BIDS_NAME"
         nTE=0
         if [[ $Acq == *"shortTE"* ]] && ! [[ $TE == *"0.035"* ]]; then
@@ -376,7 +521,7 @@ import json
 jsonHeaderFile = open("$JsonOutFile")
 HeaderFileData = json.load(jsonHeaderFile)
 jsonHeaderFile.close()
-newHeader = {"EchoTime": $nTE, "dim_6": "DIM_DYN"}
+newHeader = {"EchoTime": $nTE, "dim_6": "DIM_DYN", "WaterSuppressed": False, "run": $Counter}
 HeaderFileData.update(newHeader)
 file = open("$JsonOutFile", 'w+')
 json.dump(HeaderFileData, file, indent=4)
@@ -388,7 +533,7 @@ python -c "$PYCMD"
           # Overwrite orignial json header extension
           eval "spec2nii insert $OutFile $JsonOutFile -o $OutputDIR"
         fi
-
+        echo "ShortTE Philips Water"
         Acq="shortTE"
 	BIDS_NAME=/sub-"$DCCID"_ses-"$VisitID"_acq-"$Acq"_"run-$Counter"_"$Suff".nii.gz
         OutFile="$OutputDIR"/"$BIDS_NAME"
@@ -413,7 +558,7 @@ import json
 jsonHeaderFile = open("$JsonOutFile")
 HeaderFileData = json.load(jsonHeaderFile)
 jsonHeaderFile.close()
-newHeader = {"EchoTime": $nTE, "dim_6": "DIM_DYN"}
+newHeader = {"EchoTime": $nTE, "dim_6": "DIM_DYN", "WaterSuppressed": False}
 HeaderFileData.update(newHeader)
 file = open("$JsonOutFile", 'w+')
 json.dump(HeaderFileData, file, indent=4)
@@ -426,10 +571,7 @@ python -c "$PYCMD"
           eval "spec2nii insert $OutFile $JsonOutFile -o $OutputDIR"
         fi
       fi
-    fi
-    no_files=$((no_files+1))
-
-# Add run number to the JSON:
+      # Add run number to the JSON:
 PYCMD=$(cat <<EOF
 import json
 jsonHeaderFile = open("$JsonOutFile")
@@ -442,8 +584,10 @@ json.dump(HeaderFileData, file, indent=4)
 file.close()
 EOF
 )
-    python -c "$PYCMD"
-    eval "spec2nii insert $OutFile $JsonOutFile -o $OutputDIR"
+          python -c "$PYCMD"
+          eval "spec2nii insert $OutFile $JsonOutFile -o $OutputDIR"
+    fi
+    no_files=$((no_files+1))
   fi
 done;
 no_files=$((no_files-1))
