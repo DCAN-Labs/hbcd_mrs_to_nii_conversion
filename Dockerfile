@@ -7,6 +7,7 @@ RUN apt-get -y install curl
 RUN apt install dcmtk -y
 
 # Prepare environment
+RUN apt install -y unar
 RUN apt-get update && \
     apt-get install -y --no-install-recommends \
                     apt-utils \
