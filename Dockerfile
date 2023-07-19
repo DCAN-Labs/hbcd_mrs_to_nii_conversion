@@ -54,4 +54,4 @@ COPY spec2nii_HBCD_batch.sh /code/run.sh
 #ENTRYPOINT ["bash", "/opt/conda/etc/profile.d/conda.sh", "activate", "&&", "bash", "/code/run.sh"]
 ENTRYPOINT ["bash", "/code/run.sh"]
 
-RUN chmod 555 -R /code
+RUN chmod 555 -R /code /usr/local/lib/python3.9/site-packages/spec2nii/
