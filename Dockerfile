@@ -49,16 +49,16 @@ RUN mkdir /code
 #SHELL ["conda", "run", "-n", "myenv", "/bin/bash", "-c"] #THIS MIGHT BE NECESSARY
 #RUN echo "source activate myenv" > ~/.bashrc 
 #RUN conda init bash --system
-RUN pip install spec2nii==0.6.8
+RUN pip install spec2nii==0.6.11
 
 ##########################################################
 #THIS IS JUST FOR OVERWRITING THE SPEC2NII INSTALLATION###
 #TEMPORARILY BECAUSE THIS IS A CUSTOM PATCH TO SPEC2NII###
 #Once the patch is incorporated, this code can be deleted#
-RUN rm -r /usr/local/lib/python3.9/site-packages/spec2nii/
-RUN wget https://s3.msi.umn.edu/leex6144-public/spec2nii.zip -O /usr/local/lib/python3.9/site-packages/spec2nii.zip
-RUN cd /usr/local/lib/python3.9/site-packages/ && unzip -q spec2nii.zip
-RUN rm /usr/local/lib/python3.9/site-packages/spec2nii.zip
+#RUN rm -r /usr/local/lib/python3.9/site-packages/spec2nii/
+#RUN wget https://s3.msi.umn.edu/leex6144-public/spec2nii.zip -O /usr/local/lib/python3.9/site-packages/spec2nii.zip
+#RUN cd /usr/local/lib/python3.9/site-packages/ && unzip -q spec2nii.zip
+#RUN rm /usr/local/lib/python3.9/site-packages/spec2nii.zip
 ###########################################################
 ###########################################################
 
