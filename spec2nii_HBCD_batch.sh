@@ -17,7 +17,7 @@ ZipLoc=$1
 #
 # DEPENDENCIES:
 # Python packages
-# spec2nii v0.6.5 (https://github.com/wtclarke/spec2nii)
+# spec2nii v0.7.0 (https://github.com/wtclarke/spec2nii)
 #
 # other packages
 # Non unix OS users need to install the following package to expand tar and zip archives:
@@ -123,6 +123,9 @@ do
             Format="none"
             echo No dcmdump txt file found
         else
+          # We have to be sure that InstitutionName and ProtocolName are in the txt files
+          echo "(0008,0080) LO [HBCD site]                              #  30, 1 InstitutionName">> $txt
+          echo "(0018,1030) LO [WIP HYPER]                              #  10, 1 ProtocolName">> $txt
             eval "dump2dcm $txt $dcm"
         fi
      fi
