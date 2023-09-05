@@ -277,7 +277,7 @@ do
 
     # Use prot or filename to decide on acq;
     # Get suffix for hyper sequences
-    if [[ $f == *"HYPER"* ]]||[[ $f == *"hyper"* ]]; then
+    if [[ $f == *"HYPER"* ]]||[[ $f == *"hyper"* ]]||[[ $f == *"ISTHMUS"* ]]||[[ $f == *"isthmus"* ]]; then
       if [[ $f == *"short_te"* ]]; then
       	Acq="shortTE"
       elif [[ $f == *"edited"* ]]; then
@@ -303,7 +303,7 @@ do
       fi
     fi
 
-    if [[ $f == *"HYPER"* ]]; then
+    if [[ $f == *"HYPER"* ]]||[[ $f == *"hyper"* ]]||[[ $f == *"ISTHMUS"* ]]||[[ $f == *"isthmus"* ]]; then
       if [ $Format == "data" ] ;then
         if [[ $f == *"ref"* ]]; then
           eval "mrs_tools split --file $f --dim DIM_USER_0 --indices 0 1 2 3 --output $TopLevelDIR"
@@ -384,7 +384,7 @@ python -c "$PYCMD"
 # Update nii-header for Siemens Hyper Sequence if needed
 if [ $Format == "twix" ];then
   echo "Hyper Siemens Metabolites"
-  if [[ $Prot == *"hyper"* ]]; then
+  if [[ $Prot == *"HYPER"* ]]||[[ $Prot == *"hyper"* ]]||[[ $Prot == *"ISTHMUS"* ]]||[[ $Prot == *"isthmus"* ]]; then
     # water reference
     if [[ $Suff == *"ref"* ]]; then
       Offset=0.0
