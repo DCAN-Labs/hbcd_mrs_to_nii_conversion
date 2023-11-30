@@ -33,8 +33,8 @@ ZipLoc=$1
 #
 # first version C.W.Davies-Jenkins, Johns Hopkins 2023
 # modifed by Helge Zollner, Johns Hopkins 01-21-23
-
-
+​
+​
 # Extract info from zip file name
 ZipName=$(basename -- "$ZipLoc")
 extension="${ZipName##*.}"
@@ -42,26 +42,26 @@ ZipName="${ZipName%.*}"
 IFS=$'_'
 ZipSplit=($ZipName)
 unset IFS;
-
+​
 # Definitions according to the zip file naming conventions:
 PSCID=${ZipSplit[0]}
 DCCID=${ZipSplit[1]}
 VisitID=${ZipSplit[2]}
-
+​
 # Create output directory
 OutputDIR="$2"/sub-"$DCCID"/ses-"$VisitID"/mrs
 mkdir -p $OutputDIR
-
+​
 # Directory for temporary files:
 Staging=$OutputDIR
 Staging="$Staging"/temp/
-
+​
 # Unarchive the file (works for zip and tar):
 unar $ZipLoc -o $Staging -f -d
-
+​
 # Save path to top level directory
 TopLevelDIR=$Staging
-
+​
 # Initilize with no format
 Format="none"
 # Loop over files in temporary directroy
@@ -131,7 +131,7 @@ do
      fi
   fi
 done;
-
+​
 echo Data format: $Format
 echo Location of zip file: $ZipLoc
 echo Location of output directory: $OutputDIR
@@ -139,14 +139,14 @@ echo Temp dir: $Staging
 echo PSCID: $PSCID
 echo DCCID: $DCCID
 echo VisitID: $VisitID
-
-
+​
+​
 # Unable to parse format from files ... skip to end
 if [ $Format == "none" ]; then
   echo Unable to identify file format. Check folder structure.
   exit 0
 fi
-
+​
 # Based on format, setup spec2nii source and file extensions
 case $Format in
     twix)
@@ -180,7 +180,7 @@ case $Format in
         Ext=".dcm"
         ;;
 esac
-
+​
 # Loop over files found with the specified extension and perform conversion:
 for f in $(find "$TopLevelDIR" -type f -name "*$Ext");
 do
@@ -204,10 +204,10 @@ do
         #statements
         FilePath="$f"
       fi
-
+​
       # Run spec2nii initial call:
       eval "$CMD $FilePath -o $TopLevelDIR"
-
+​
       # Some cleanup:
       if [ $Format == "sdat" ];then
         rm "${f%$Ext}.SPAR"
@@ -215,12 +215,12 @@ do
       rm "$f"
     fi
 done;
-
+​
 # Separate loop for json dump and anonomize
-
+​
 # Declare an empty list of generated Filenames. (ensures no repeated names)
 declare -a Filenames=()
-
+​
 # Initialize number of files:
 no_files=1
 for f in $(find "$TopLevelDIR" -type f -name "*.nii.gz");
@@ -233,18 +233,24 @@ do
     IFS=$'\n'
     array=($Dump)
     unset IFS;
-
+​
     # Initialize relevant dimension variables:
     Coil=0
     Dyn=0
     Edit=0
-
+​
     # Loop over array to grab for individual fields
     for i in "${array[@]}"
     do
         if [[ $i == *"EchoTime"* ]]; then
 	    TE=${i#*:}
 	    TE=${TE::5}
+  elif [[ $i == *"RepetitionTime"* ]]; then
+      TR=${i#*:}
+      TR=${TR::5}
+        if [[ $Format == "sdat" ]] || [[ $Format == "data" ]]; then
+            TR=$((TR / 1000))
+        fi
 	elif [[ $i == *"dim             :"* ]]; then
 	    Dim=${i#*: [}
 	    Dim=${Dim%?}
@@ -274,7 +280,7 @@ do
 	    WatSup=${WatSup::2}
         fi
     done
-
+​
     # Use prot or filename to decide on acq;
     # Get suffix for hyper sequences
     if [[ $f == *"HYPER"* ]]||[[ $f == *"hyper"* ]]||[[ $f == *"ISTHMUS"* ]]||[[ $f == *"isthmus"* ]]; then
@@ -302,7 +308,7 @@ do
       	Acq="hercules"
       fi
     fi
-
+​
     if [[ $f == *"HYPER"* ]]||[[ $f == *"hyper"* ]]||[[ $f == *"ISTHMUS"* ]]||[[ $f == *"isthmus"* ]]; then
       if [ $Format == "data" ] ;then
         if [[ $f == *"ref"* ]]; then
@@ -310,7 +316,7 @@ do
         fi
       fi
     fi
-
+​
     # For GE data only
     if [ $Format == "ge" ];then
       if [[ $Prot == *"press"* ]] ||[[ $Prot == *"PRESS"* ]]; then
@@ -324,19 +330,19 @@ do
         Suff="ref"
       fi
     fi
-
+​
     # NAMING CONVENTION FOR OUTPUT DATA
     # Initialize run counter:
     Counter=1
     BIDS_NAME=/sub-"$DCCID"_ses-"$VisitID"_acq-"$Acq"_"run-$Counter"_"$Suff".nii.gz
-
+​
     # If filename is already generated, then iterate the run counter and update filename:
     while [[ "${Filenames[*]}" =~ "${BIDS_NAME}" ]]; do
       ((Counter+=Counter))
       BIDS_NAME=sub-"$DCCID"_ses-"$VisitID"_acq-"$Acq"_"run-$Counter"_"$Suff".nii.gz
     done
     Filenames+=("${BIDS_NAME}")
-
+​
     OutFile="$OutputDIR"/"$BIDS_NAME"
     # This is for Hyper data
     if ! [[ $f == *"NOI"* ]]; then
@@ -363,285 +369,4 @@ do
           nTE=0.08
         fi
         if ! [[ $nTE == 0 ]]; then
-PYCMD=$(cat <<EOF
-import json
-jsonHeaderFile = open("$JsonOutFile")
-HeaderFileData = json.load(jsonHeaderFile)
-jsonHeaderFile.close()
-newEchoTime = {"EchoTime": $nTE, "WaterSuppressed": True}
-HeaderFileData.update(newEchoTime)
-file = open("$JsonOutFile", 'w+')
-json.dump(HeaderFileData, file, indent=4)
-file.close()
-EOF
-)
-python -c "$PYCMD"
-          # Overwrite orignial json header extension
-          eval "spec2nii insert $OutFile $JsonOutFile -o $OutputDIR"
-        fi
-
-
-# Update nii-header for Siemens Hyper Sequence if needed
-if [ $Format == "twix" ];then
-  echo "Hyper Siemens Metabolites"
-  if [[ $Prot == *"HYPER"* ]]||[[ $Prot == *"hyper"* ]]||[[ $Prot == *"ISTHMUS"* ]]||[[ $Prot == *"isthmus"* ]]; then
-    # water reference
-    if [[ $Suff == *"ref"* ]]; then
-      Offset=0.0
-PYCMD=$(cat <<EOF
-import json
-jsonHeaderFile = open("$JsonOutFile")
-HeaderFileData = json.load(jsonHeaderFile)
-jsonHeaderFile.close()
-newParameter = {"TxOffset": $Offset, "dim_6": "DIM_DYN", "WaterSuppressed": False}
-HeaderFileData.update(newParameter)
-if "dim_6_info" in HeaderFileData: del HeaderFileData["dim_6_info"]
-if "dim_6_header" in HeaderFileData: del HeaderFileData["dim_6_header"]
-if "EditPulse" in HeaderFileData: del HeaderFileData["EditPulse"]
-file = open("$JsonOutFile", 'w+')
-json.dump(HeaderFileData, file, indent=4)
-file.close()
-EOF
-)
-    python -c "$PYCMD"
-    # Overwrite orignial json header extension
-    eval "spec2nii insert $OutFile $JsonOutFile -o $OutputDIR"
-    fi
-    # shortTE
-    if [[ $Acq == *"shortTE"* ]] && ! [[ $Suff == *"ref"* ]]; then
-PYCMD=$(cat <<EOF
-import json
-jsonHeaderFile = open("$JsonOutFile")
-HeaderFileData = json.load(jsonHeaderFile)
-jsonHeaderFile.close()
-newParameter = {"dim_6": "DIM_DYN"}
-HeaderFileData.update(newParameter)
-if "dim_6_info" in HeaderFileData: del HeaderFileData["dim_6_info"]
-if "dim_6_header" in HeaderFileData: del HeaderFileData["dim_6_header"]
-if "EditPulse" in HeaderFileData: del HeaderFileData["EditPulse"]
-file = open("$JsonOutFile", 'w+')
-json.dump(HeaderFileData, file, indent=4)
-file.close()
-EOF
-)
-    python -c "$PYCMD"
-    # Overwrite orignial json header extension
-    eval "spec2nii insert $OutFile $JsonOutFile -o $OutputDIR"
-    fi
-  fi
-fi
-
-# Update nii-header for GE HERCULES Sequence if needed
-if [ $Format == "ge" ];then
-  echo "GE Metabolites"
-  # water reference
-  if [[ $Suff == *"ref"* ]]; then
-      Offset=0.0
-      if [[ $Acq == *"shortTE"* ]]; then
-PYCMD=$(cat <<EOF
-import json
-jsonHeaderFile = open("$JsonOutFile")
-HeaderFileData = json.load(jsonHeaderFile)
-jsonHeaderFile.close()
-newParameter = {"TxOffset": $Offset, "dim_5": "DIM_DYN", "dim_6": "DIM_COIL", "WaterSuppressed": False}
-HeaderFileData.update(newParameter)
-if "dim_6_info" in HeaderFileData: del HeaderFileData["dim_6_info"]
-if "dim_6_header" in HeaderFileData: del HeaderFileData["dim_6_header"]
-if "EditPulse" in HeaderFileData: del HeaderFileData["EditPulse"]
-file = open("$JsonOutFile", 'w+')
-json.dump(HeaderFileData, file, indent=4)
-file.close()
-EOF
-)
-  else
-PYCMD=$(cat <<EOF
-import json
-jsonHeaderFile = open("$JsonOutFile")
-HeaderFileData = json.load(jsonHeaderFile)
-jsonHeaderFile.close()
-newParameter = {"TxOffset": $Offset, "WaterSuppressed": False}
-HeaderFileData.update(newParameter)
-if "dim_6_info" in HeaderFileData: del HeaderFileData["dim_6_info"]
-if "dim_6_header" in HeaderFileData: del HeaderFileData["dim_6_header"]
-if "EditPulse" in HeaderFileData: del HeaderFileData["EditPulse"]
-file = open("$JsonOutFile", 'w+')
-json.dump(HeaderFileData, file, indent=4)
-file.close()
-EOF
-)
-  fi
-  python -c "$PYCMD"
-  # Overwrite orignial json header extension
-  eval "spec2nii insert $OutFile $JsonOutFile -o $OutputDIR"
-  fi
-  # shortTE
-  if [[ $Acq == *"shortTE"* ]] && ! [[ $Suff == *"ref"* ]]; then
-PYCMD=$(cat <<EOF
-import json
-jsonHeaderFile = open("$JsonOutFile")
-HeaderFileData = json.load(jsonHeaderFile)
-jsonHeaderFile.close()
-newParameter = {"dim_5": "DIM_DYN", "dim_6": "DIM_COIL"}
-HeaderFileData.update(newParameter)
-if "dim_6_info" in HeaderFileData: del HeaderFileData["dim_6_info"]
-if "dim_6_header" in HeaderFileData: del HeaderFileData["dim_6_header"]
-if "EditPulse" in HeaderFileData: del HeaderFileData["EditPulse"]
-file = open("$JsonOutFile", 'w+')
-json.dump(HeaderFileData, file, indent=4)
-file.close()
-EOF
-)
-  python -c "$PYCMD"
-  # Overwrite orignial json header extension
-  eval "spec2nii insert $OutFile $JsonOutFile -o $OutputDIR"
-  fi
-fi
-
-      else
-        echo "Hyper Philips Water"
-        echo "HERCULES Philips Water"
-        Acq="hercules"
-	      BIDS_NAME=sub-"$DCCID"_ses-"$VisitID"_acq-"$Acq"_"run-$Counter"_"$Suff".nii.gz
-        OutFile="$OutputDIR"/"$BIDS_NAME"
-        sp="$TopLevelDIR"/HYPER_hyper_water_ref_selected.nii.gz
-        # Move NIfTI to output folder
-        mv -f "$sp" "$OutFile"
-        # Extract JSON sidecar and anonomize the NIfTI data:
-        eval "spec2nii anon $OutFile -o $OutputDIR"
-        eval "spec2nii extract $OutFile"
-        JSON_BIDS_NAME=sub-"$DCCID"_ses-"$VisitID"_acq-"$Acq"_"run-$Counter"_"$Suff".json
-        JsonOutFile="$OutputDIR"/"$JSON_BIDS_NAME"
-        nTE=0
-        if [[ $Acq == *"shortTE"* ]] && ! [[ $TE == *"0.035"* ]]; then
-          nTE=0.035
-        fi
-        if [[ $Acq == *"hercules"* ]] && ! [[ $TE == *"0.08"* ]]; then
-          nTE=0.08
-        fi
-        if ! [[ $nTE == 0 ]]; then
-PYCMD=$(cat <<EOF
-import json
-jsonHeaderFile = open("$JsonOutFile")
-HeaderFileData = json.load(jsonHeaderFile)
-jsonHeaderFile.close()
-newHeader = {"EchoTime": $nTE, "dim_6": "DIM_DYN", "WaterSuppressed": False, "run": $Counter}
-HeaderFileData.update(newHeader)
-file = open("$JsonOutFile", 'w+')
-json.dump(HeaderFileData, file, indent=4)
-file.close()
-EOF
-)
-python -c "$PYCMD"
-
-          # Overwrite orignial json header extension
-          eval "spec2nii insert $OutFile $JsonOutFile -o $OutputDIR"
-        fi
-        echo "ShortTE Philips Water"
-        Acq="shortTE"
-	BIDS_NAME=/sub-"$DCCID"_ses-"$VisitID"_acq-"$Acq"_"run-$Counter"_"$Suff".nii.gz
-        OutFile="$OutputDIR"/"$BIDS_NAME"
-        sp="$TopLevelDIR"/HYPER_hyper_water_ref_others.nii.gz
-        # Move NIfTI to output folder
-        mv -f "$sp" "$OutFile"
-        # Extract JSON sidecar and anonomize the NIfTI data:
-        eval "spec2nii anon $OutFile -o $OutputDIR"
-        eval "spec2nii extract $OutFile"
-        JSON_BIDS_NAME=/sub-"$DCCID"_ses-"$VisitID"_acq-"$Acq"_"run-$Counter"_"$Suff".json
-        JsonOutFile="$OutputDIR"/"$JSON_BIDS_NAME"
-        nTE=0
-        if [[ $Acq == *"shortTE"* ]] && ! [[ $TE == *"0.035"* ]]; then
-          nTE=0.035
-        fi
-        if [[ $Acq == *"hercules"* ]] && ! [[ $TE == *"0.08"* ]]; then
-          nTE=0.08
-        fi
-        if ! [[ $nTE == 0 ]]; then
-PYCMD=$(cat <<EOF
-import json
-jsonHeaderFile = open("$JsonOutFile")
-HeaderFileData = json.load(jsonHeaderFile)
-jsonHeaderFile.close()
-newHeader = {"EchoTime": $nTE, "dim_6": "DIM_DYN", "WaterSuppressed": False}
-HeaderFileData.update(newHeader)
-file = open("$JsonOutFile", 'w+')
-json.dump(HeaderFileData, file, indent=4)
-file.close()
-EOF
-)
-python -c "$PYCMD"
-
-          # Overwrite orignial json header extension
-          eval "spec2nii insert $OutFile $JsonOutFile -o $OutputDIR"
-        fi
-      fi
-      # Add run number to the JSON:
-PYCMD=$(cat <<EOF
-import json
-jsonHeaderFile = open("$JsonOutFile")
-HeaderFileData = json.load(jsonHeaderFile)
-jsonHeaderFile.close()
-newHeader = {"run": $Counter}
-HeaderFileData.update(newHeader)
-file = open("$JsonOutFile", 'w+')
-json.dump(HeaderFileData, file, indent=4)
-file.close()
-EOF
-)
-          python -c "$PYCMD"
-          eval "spec2nii insert $OutFile $JsonOutFile -o $OutputDIR"
-    fi
-    no_files=$((no_files+1))
-  fi
-done;
-no_files=$((no_files-1))
-
-# Some cleanup:
-rm -r -f "$Staging"
-
-# Validate the anonymization
-for f in $(find "$OutputDIR" -type f -name "*.nii.gz");
-do
-  file=${f##*/}
-  ini=${file:0:1}
-  if ! [[ $ini == "." ]] ; then
-    # Get header dump from NIfTI file and convert to array:
-    Dump=$(eval "spec2nii dump $f")
-    IFS=$'\n'
-    array=($Dump)
-    unset IFS;
-
-    # Initialize relevant dimension variables:
-    anon=1
-    # Loop over array to grab for individual fields
-    for i in "${array[@]}"
-    do
-     if [[ $i == *"PatientDoB"* ]]; then
-	    anon=0
-    elif [[ $i == *"PatientName"* ]]; then
-	    anon=0
-	    fi
-    done
-  fi
-done
-
-# Final message
-if (( $no_files == 4 ));then
-  echo Success! 4 nii files generated.
-  exitcode=1
-fi
-if (( $no_files < 4 ));then
-  echo Warning! $no_files nii files generated. Check MRS archive.
-  exitcode=0
-fi
-if (( $no_files > 4 ));then
-  echo Warning! $no_files nii files generated but we expect only 4. Ensure correct job setup.
-  exitcode=0
-fi
-if (( $anon == 1 ));then
-  echo De-identification successful.
-else
-  echo De-identification failed.
-  exitcode=2
-fi
-# Exit code 1 == success, 0 == wrong number of files, 2 == de-idenfication failed
-echo $exitcode
+PYCMD=$(c...
