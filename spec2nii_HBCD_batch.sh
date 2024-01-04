@@ -302,11 +302,14 @@ do
         fi
       fi
     else
-      if [[ $Prot == *"PRESS"* ]]; then
+      echo Prot $Prot
+      echo TE $TE
+      if [[ $Prot == *"PRESS"* ]]||[[ $TE == *"0.03"* ]]; then
       	Acq="shortTE"
-          elif [[ $Prot == *"HERC"* ]]; then
+      elif [[ $Prot == *"HERC"* ]]||[[ $TE == *"0.08"* ]]; then
       	Acq="hercules"
       fi
+      echo Acq $Acq
     fi
 
     if [[ $f == *"HYPER"* ]]||[[ $f == *"hyper"* ]]||[[ $f == *"ISTHMUS"* ]]||[[ $f == *"isthmus"* ]]; then
