@@ -2,7 +2,7 @@
 ZipLoc=$1
 # Function for HBCD spec2nii BIDS conversion on raw data. This function will take an appropriately named zip file:
 #	1) Extract the file to the current work directory
-# 	2) Identify format from files
+# 2) Identify format from files
 #	2) Loop over the files running spec2nii
 #	3) Use NIfTI header info to identify the acquisitions
 #	4) Check dimensions of the HERCULES data and separate HYPER water
@@ -47,15 +47,90 @@ unset IFS;
 PSCID=${ZipSplit[0]}
 DCCID=${ZipSplit[1]}
 VisitID=${ZipSplit[2]}
+StudyInstanceUID=${ZipSplit[4]}
+
+if [[ ! $StudyInstanceUID ]]; then
+  StudyInstanceUID=None
+fi
 
 # Create output directory
+
 OutputDIR="$2"/sub-"$DCCID"/ses-"$VisitID"/mrs
+
 mkdir -p $OutputDIR
 
 # Directory for temporary files:
 Staging=$OutputDIR
 Staging="$Staging"/temp/
+OutputDIRLoop="$OutputDIR"/*
 
+CounterStart=1
+CurrentRun=99
+if [ -z "$(ls -A $OutputDIR)" ]; then
+   echo "Empty"
+   IsNewSIUID=1
+   MaxRun=0
+else
+   echo "Not Empty"
+   IsNewSIUID=0
+   MaxRun=1
+fi
+
+for file in $OutputDIRLoop
+do
+    extension=${file##*.}
+    if [[ $extension == "json" ]]; then
+      nstring=${#file}
+      string_pos=$nstring-10
+      string_pos2=$nstring-11
+      string2=${file:string_pos2:1}
+      if [[ $string2 == "-" ]]; then
+        run=${file:string_pos:1}
+      else
+        run=${file:string_pos2:2}
+      fi
+      run=$((run + 0))
+      echo "$run"
+      if [[ "$run" -gt "$MaxRun" ]]; then
+        MaxRun=$(($MaxRun + 1))
+        echo MaxRun "$MaxRun"
+      fi
+
+      SIUID="$(grep -Eo '"[^"]*" *(: *([0-9]*|"[^"]*")[^{}\["]*|,)?|[^"\]\[\}\{]*|\{|\},?|\[|\],?|[0-9 ]*,?' $file)"
+      string='"StudyInstanceUID": "'
+      SIUID=${SIUID##*$string}
+      nstring=${#SIUID}
+      SIUID=${SIUID:0:nstring-3}
+      echo "$SIUID"
+      if [[ "$StudyInstanceUID" != "$SIUID" ]]; then
+        echo Is new SIUID
+        IsNewSIUID=1
+      else
+        echo Is old SIUID
+        IsNewSIUID=0
+        if [[ "$run" -lt "$CurrentRun" ]]; then
+          CurrentRun=$run
+        fi
+        echo CurrentRun: $CurrentRun
+      fi
+
+      #echo run: $run
+      #echo CounterStart: $CounterStart
+    fi
+done
+
+if [[ $CurrentRun != "99" ]]; then
+  IsNewSIUID=0
+fi
+
+if [[ $IsNewSIUID == "1" ]]; then
+  echo Inside is New SUID LOOP:
+  CounterStart=$(($MaxRun + 1))
+else
+  echo Inside is old SUID LOOP:
+  CounterStart=$CurrentRun
+fi
+echo Actual Run: $CounterStart
 # Unarchive the file (works for zip and tar):
 unar $ZipLoc -o $Staging -f -d
 
@@ -139,6 +214,7 @@ echo Temp dir: $Staging
 echo PSCID: $PSCID
 echo DCCID: $DCCID
 echo VisitID: $VisitID
+echo StudyInstanceUID: $StudyInstanceUID
 
 
 # Unable to parse format from files ... skip to end
@@ -334,14 +410,15 @@ do
       fi
     fi
 
+    echo Suffix $Suff
     # NAMING CONVENTION FOR OUTPUT DATA
     # Initialize run counter:
-    Counter=1
+    Counter=$CounterStart
     BIDS_NAME=/sub-"$DCCID"_ses-"$VisitID"_acq-"$Acq"_"run-$Counter"_"$Suff".nii.gz
 
     # If filename is already generated, then iterate the run counter and update filename:
     while [[ "${Filenames[*]}" =~ "${BIDS_NAME}" ]]; do
-      ((Counter+=Counter))
+      Counter=$(($Counter + 1))
       BIDS_NAME=sub-"$DCCID"_ses-"$VisitID"_acq-"$Acq"_"run-$Counter"_"$Suff".nii.gz
     done
     Filenames+=("${BIDS_NAME}")
@@ -402,7 +479,7 @@ import json
 jsonHeaderFile = open("$JsonOutFile")
 HeaderFileData = json.load(jsonHeaderFile)
 jsonHeaderFile.close()
-newParameter = {"TxOffset": $Offset, "dim_6": "DIM_DYN", "WaterSuppressed": False}
+newParameter = {"TxOffset": $Offset, "dim_6": "DIM_DYN", "WaterSuppressed": False, "Manufacturer": "Siemens"}
 HeaderFileData.update(newParameter)
 if "dim_6_info" in HeaderFileData: del HeaderFileData["dim_6_info"]
 if "dim_6_header" in HeaderFileData: del HeaderFileData["dim_6_header"]
@@ -423,7 +500,7 @@ import json
 jsonHeaderFile = open("$JsonOutFile")
 HeaderFileData = json.load(jsonHeaderFile)
 jsonHeaderFile.close()
-newParameter = {"dim_6": "DIM_DYN"}
+newParameter = {"dim_6": "DIM_DYN", "Manufacturer": "Siemens"}
 HeaderFileData.update(newParameter)
 if "dim_6_info" in HeaderFileData: del HeaderFileData["dim_6_info"]
 if "dim_6_header" in HeaderFileData: del HeaderFileData["dim_6_header"]
@@ -442,9 +519,9 @@ fi
 
 # Update nii-header for GE HERCULES Sequence if needed
 if [ $Format == "ge" ];then
-  echo "GE Metabolites"
-  # water reference
-  if [[ $Suff == *"ref"* ]]; then
+  echo "GE"
+  if [[ $Suff == *"ref"* ]]; then   # water reference
+      echo "GE water"
       Offset=0.0
       if [[ $Acq == *"shortTE"* ]]; then
 PYCMD=$(cat <<EOF
@@ -452,7 +529,7 @@ import json
 jsonHeaderFile = open("$JsonOutFile")
 HeaderFileData = json.load(jsonHeaderFile)
 jsonHeaderFile.close()
-newParameter = {"TxOffset": $Offset, "dim_5": "DIM_DYN", "dim_6": "DIM_COIL", "WaterSuppressed": False}
+newParameter = {"TxOffset": $Offset, "dim_5": "DIM_DYN", "dim_6": "DIM_COIL", "dim_7": "DIM_INDIRECT_0", "WaterSuppressed": False, "Manufacturer": "GE"}
 HeaderFileData.update(newParameter)
 if "dim_6_info" in HeaderFileData: del HeaderFileData["dim_6_info"]
 if "dim_6_header" in HeaderFileData: del HeaderFileData["dim_6_header"]
@@ -462,13 +539,17 @@ json.dump(HeaderFileData, file, indent=4)
 file.close()
 EOF
 )
-  else
+echo "Update GE shortTE ref header"
+python -c "$PYCMD"
+# Overwrite orignial json header extension
+eval "spec2nii insert $OutFile $JsonOutFile -o $OutputDIR"
+else # Is HERCULES
 PYCMD=$(cat <<EOF
 import json
 jsonHeaderFile = open("$JsonOutFile")
 HeaderFileData = json.load(jsonHeaderFile)
 jsonHeaderFile.close()
-newParameter = {"TxOffset": $Offset, "WaterSuppressed": False}
+newParameter = {"TxOffset": $Offset, "dim_5": "DIM_COIL", "dim_6": "DIM_DYN", "WaterSuppressed": False, "Manufacturer": "GE"}
 HeaderFileData.update(newParameter)
 if "dim_6_info" in HeaderFileData: del HeaderFileData["dim_6_info"]
 if "dim_6_header" in HeaderFileData: del HeaderFileData["dim_6_header"]
@@ -478,20 +559,20 @@ json.dump(HeaderFileData, file, indent=4)
 file.close()
 EOF
 )
-  fi
-  python -c "$PYCMD"
-  # Overwrite orignial json header extension
-  eval "spec2nii insert $OutFile $JsonOutFile -o $OutputDIR"
-  fi
-  # shortTE
+echo "Update GE HERCULES ref header"
+python -c "$PYCMD"
+# Overwrite orignial json header extension
+eval "spec2nii insert $OutFile $JsonOutFile -o $OutputDIR"
+fi # End if statement short TE or HERCULES water
+else   # metabolite data
+  echo "GE metabolites"
   if [[ $Acq == *"shortTE"* ]] && ! [[ $Suff == *"ref"* ]]; then
-    if [ $Format == "data" ];then
 PYCMD=$(cat <<EOF
 import json
 jsonHeaderFile = open("$JsonOutFile")
 HeaderFileData = json.load(jsonHeaderFile)
 jsonHeaderFile.close()
-newParameter = {"dim_5": "DIM_DYN", "dim_6": "DIM_COIL", "Manufacturer": "Philips"}
+newParameter = {"dim_5": "DIM_DYN", "dim_6": "DIM_COIL", "dim_7": "DIM_INDIRECT_0", "Manufacturer": "GE"}
 HeaderFileData.update(newParameter)
 if "dim_6_info" in HeaderFileData: del HeaderFileData["dim_6_info"]
 if "dim_6_header" in HeaderFileData: del HeaderFileData["dim_6_header"]
@@ -501,27 +582,29 @@ json.dump(HeaderFileData, file, indent=4)
 file.close()
 EOF
 )
+    echo "Update GE shortTE Metabolites"
+    python -c "$PYCMD"
+# Overwrite orignial json header extension
+eval "spec2nii insert $OutFile $JsonOutFile -o $OutputDIR"
     else
 PYCMD=$(cat <<EOF
 import json
 jsonHeaderFile = open("$JsonOutFile")
 HeaderFileData = json.load(jsonHeaderFile)
 jsonHeaderFile.close()
-newParameter = {"dim_5": "DIM_DYN", "dim_6": "DIM_COIL"}
+newParameter = {"dim_5": "DIM_COIL", "dim_6": "DIM_DYN", "Manufacturer": "GE"}
 HeaderFileData.update(newParameter)
-if "dim_6_info" in HeaderFileData: del HeaderFileData["dim_6_info"]
-if "dim_6_header" in HeaderFileData: del HeaderFileData["dim_6_header"]
-if "EditPulse" in HeaderFileData: del HeaderFileData["EditPulse"]
 file = open("$JsonOutFile", 'w+')
 json.dump(HeaderFileData, file, indent=4)
 file.close()
 EOF
 )
-    fi
+  echo "Update GE HERCULES Metabolites"
   python -c "$PYCMD"
   # Overwrite orignial json header extension
   eval "spec2nii insert $OutFile $JsonOutFile -o $OutputDIR"
   fi
+fi
 fi
 
       else
@@ -551,7 +634,10 @@ jsonHeaderFile = open("$JsonOutFile")
 HeaderFileData = json.load(jsonHeaderFile)
 jsonHeaderFile.close()
 TR_float=float($TR)
-newHeader = {"EchoTime": $nTE, "RepetitionTime": TR_float, "dim_6": "DIM_DYN", "WaterSuppressed": False, "Manufacturer": "Philips"}
+ProtName = HeaderFileData.get("ProtocolName")
+HBCD = "-HBCD"
+ProtName = ProtName + HBCD
+newHeader = {"EchoTime": $nTE, "RepetitionTime": TR_float, "dim_6": "DIM_DYN", "WaterSuppressed": False, "Manufacturer": "Philips","ProtocolName": ProtName}
 HeaderFileData.update(newHeader)
 file = open("$JsonOutFile", 'w+')
 json.dump(HeaderFileData, file, indent=4)
@@ -562,6 +648,20 @@ python -c "$PYCMD"
 
           # Overwrite orignial json header extension
           eval "spec2nii insert $OutFile $JsonOutFile -o $OutputDIR"
+    # Add StudyInstanceUID  to the JSON:
+PYCMD=$(cat <<EOF
+import json
+jsonHeaderFile = open("$JsonOutFile")
+HeaderFileData = json.load(jsonHeaderFile)
+jsonHeaderFile.close()
+newHeader = {"StudyInstanceUID": "$StudyInstanceUID"}
+HeaderFileData.update(newHeader)
+file = open("$JsonOutFile", 'w+')
+json.dump(HeaderFileData, file, indent=4)
+file.close()
+EOF
+)
+python -c "$PYCMD"
         echo "ShortTE Philips Water"
         Acq="shortTE"
 	BIDS_NAME=/sub-"$DCCID"_ses-"$VisitID"_acq-"$Acq"_"run-$Counter"_"$Suff".nii.gz
@@ -588,7 +688,10 @@ jsonHeaderFile = open("$JsonOutFile")
 HeaderFileData = json.load(jsonHeaderFile)
 jsonHeaderFile.close()
 TR_float=float($TR)
-newHeader = {"EchoTime": $nTE,"RepetitionTime": TR_float, "dim_6": "DIM_DYN", "WaterSuppressed": False, "Manufacturer": "Philips"}
+ProtName = HeaderFileData.get("ProtocolName")
+HBCD = "-HBCD"
+ProtName = ProtName + HBCD
+newHeader = {"EchoTime": $nTE,"RepetitionTime": TR_float, "dim_6": "DIM_DYN", "WaterSuppressed": False, "Manufacturer": "Philips","ProtocolName": ProtName}
 HeaderFileData.update(newHeader)
 file = open("$JsonOutFile", 'w+')
 json.dump(HeaderFileData, file, indent=4)
@@ -608,7 +711,10 @@ jsonHeaderFile = open("$JsonOutFile")
 HeaderFileData = json.load(jsonHeaderFile)
 jsonHeaderFile.close()
 TR_float=float($TR)
-newHeader = {"RepetitionTime": TR_float}
+ProtName = HeaderFileData.get("ProtocolName")
+HBCD = "-HBCD"
+ProtName = ProtName + HBCD
+newHeader = {"RepetitionTime": TR_float,"ProtocolName": ProtName}
 HeaderFileData.update(newHeader)
 file = open("$JsonOutFile", 'w+')
 json.dump(HeaderFileData, file, indent=4)
@@ -618,6 +724,20 @@ EOF
           python -c "$PYCMD"
           eval "spec2nii insert $OutFile $JsonOutFile -o $OutputDIR"
     fi
+    # Add StudyInstanceUID  to the JSON:
+PYCMD=$(cat <<EOF
+import json
+jsonHeaderFile = open("$JsonOutFile")
+HeaderFileData = json.load(jsonHeaderFile)
+jsonHeaderFile.close()
+newHeader = {"StudyInstanceUID": "$StudyInstanceUID"}
+HeaderFileData.update(newHeader)
+file = open("$JsonOutFile", 'w+')
+json.dump(HeaderFileData, file, indent=4)
+file.close()
+EOF
+)
+python -c "$PYCMD"
     no_files=$((no_files+1))
   fi
 done;
