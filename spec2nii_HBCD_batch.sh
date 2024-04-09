@@ -142,68 +142,150 @@ Format="none"
 # Loop over files in temporary directroy
 for f in $(find "$TopLevelDIR" -type f -name "*");
 do
-  # Generate path, filename, and extensions
-  path=${f%/*}
-  file=${f##*/}
-  extension=${f##*.}
-  # Identification begins here
-  # Philips SDAT/SPAR
-  if [[ $extension == "SDAT" ]] || [[ $extension == "sdat" ]]; then
-     Format="sdat"
-  fi
-  # Siemens TWIX
-  if [[ $extension == "dat" ]]; then
-     Format="twix"
-  fi
-  # GE p-files
-  if [[ $extension == "7" ]]; then
-     Format="ge"
-  fi
-  # Philips data/list/dcmtxtdump following Sandeeps description
-  if [[ $extension == "zip" ]]; then
-    # Find zip archive with .data/.list pair ignore DICOM zip
-     if ! [[ $file == "Classic_DICOM.zip" ]]; then
-       Format="data"
-       path="$Staging"/unar
-       unar "$f" -o $path -f -d
-       # Move .data/.list pair in temporary directory
-        for dl in $(find "$path" -type f -name "*.list");
-        do
-          tempfile=${dl##*/}
-          ini=${tempfile:0:1}
-          if ! [[ $ini == "." ]] ; then
-            mv -f "$dl" "$TopLevelDIR"/HYPER.list
+  tempfile=${f##*/}
+  ini=${tempfile:0:1}
+  if ! [[ $ini == "." ]] ; then
+    # Generate path, filename, and extensions
+    path=${f%/*}
+    file=${f##*/}
+    extension=${f##*.}
+    # Identification begins here
+    # Philips SDAT/SPAR
+    if [[ $extension == "SDAT" ]] || [[ $extension == "sdat" ]]; then
+       Format="sdat"
+    fi
+    # Siemens TWIX
+    if [[ $extension == "dat" ]]; then
+       Format="twix"
+    fi
+    # GE p-files
+    if [[ $extension == "7" ]]; then
+       Format="ge"
+    fi
+    # Philips data/list/dcmtxtdump following Sandeeps description
+    if [[ $extension == "zip" ]]; then
+      # Find zip archive with .data/.list pair ignore DICOM zip
+       if ! [[ $file == "Classic_DICOM.zip" ]]; then
+         Format="data"
+         path="$Staging"/unar
+         unar "$f" -o $path -f -d
+         # Move .data/.list pair in temporary directory
+          for dl in $(find "$path" -type f -name "*.list");
+          do
+            tempfile=${dl##*/}
+            ini=${tempfile:0:1}
+            if ! [[ $ini == "." ]] ; then
+              mv -f "$dl" "$TopLevelDIR"/HYPER.list
+            fi
+          done;
+          for dl in $(find "$path" -type f -name "*.data");
+          do
+            tempfile=${dl##*/}
+            ini=${tempfile:0:1}
+            if ! [[ $ini == "." ]] ; then
+              mv -f "$dl" "$TopLevelDIR"/HYPER.data
+            fi
+          done;
+          # Find dcmtxtdump and convert to DICOM
+          for tx in $(find "$Staging" -type f -name "*.txt");
+          do
+            tempfile=${tx##*/}
+            ini=${tempfile:0:1}
+            if ! [[ $ini == "." ]] ; then
+              mv -f "$tx" "$TopLevelDIR"/dcmdump.txt
+            fi
+          done;
+          # Find dcmjsondump
+          for js in $(find "$Staging" -type f -name "*.json");
+          do
+            tempfile=${js##*/}
+            ini=${tempfile:0:1}
+            if ! [[ $ini == "." ]] ; then
+              mv -f "$js" "$TopLevelDIR"/dcmdump.json
+            fi
+          done;
+          # Find dcm dir
+          for dc in $(find "$Staging" -type d -name "dcm");
+          do
+            tempfile=${dc##*/}
+            ini=${tempfile:0:1}
+            if ! [[ $ini == "." ]] ; then
+              mv -f "$dc" "$TopLevelDIR"/dcm
+            fi
+          done;
+          # Find .sin file
+          for si in $(find "$Staging" -type f -name "*.sin");
+          do
+            tempfile=${si##*/}
+            ini=${tempfile:0:1}
+            if [[ $tempfile == *"mrs"* ]]; then
+              if ! [[ $ini == "." ]] ; then
+                mv -f "$si" "$TopLevelDIR"/temp.sin
+              fi
+            fi
+          done;
+          txt="$TopLevelDIR"/dcmdump.txt
+          jsn="$TopLevelDIR"/dcmdump.json
+          dcm="$TopLevelDIR"/dcmdump.dcm
+          dcmdir="$TopLevelDIR"/dcm
+          sin="$TopLevelDIR"/temp.sin
+          if ! [[ -f "$txt" ]]; then
+              Format="none"
+              echo No dcmdump txt file found
+          else
+            # Compare off center position
+            echo $sin
+            centerSin="$(grep 'loc_ap_rl_fh_offcentres' $sin | grep -Eo -- '[+-]?[0-9]+([.][0-9]{1,2})')"
+            centerDCM_ap="$(grep '(2005,105a)' $txt | grep -Eo -- '[+-]?[0-9]+([.][0-9]{1,2})')"
+            centerDCM_fh="$(grep '(2005,105b)' $txt | grep -Eo -- '[+-]?[0-9]+([.][0-9]{1,2})')"
+            centerDCM_rl="$(grep '(2005,105c)' $txt | grep -Eo -- '[+-]?[0-9]+([.][0-9]{1,2})')"
+            #Sin file order is ap rl fh and dcm is ap fh rl switching it (hopefully works all the time)
+            echo center sin: $centerSin center dcm: $centerDCM_ap $centerDCM_rl $centerDCM_fh
+            if [[ "$centerSin" == *"$centerDCM_ap"* ]] &&
+               [[ "$centerSin" == *"$centerDCM_rl"* ]] &&
+               [[ "$centerSin" == *"$centerDCM_fh"* ]]; then
+              echo Center positions match up to digit 2
+            else
+              echo Oh Boy center positions do not match
+              echo Looping over dcm files
+
+              for dc in $(find "$dcmdir" -type f);
+              do
+                tempfile=${dc##*/}
+                ini=${tempfile:0:1}
+                if ! [[ $ini == "." ]] ; then
+                  tdc="$dcmdir"/"$tempfile".txt
+                  eval "dcmdump $dc &> $tdc"
+                  centerDCM_ap="$(grep '(2005,105a)' $tdc | grep -Eo -- '[+-]?[0-9]+([.][0-9]{1,2})')"
+                  centerDCM_fh="$(grep '(2005,105b)' $tdc | grep -Eo -- '[+-]?[0-9]+([.][0-9]{1,2})')"
+                  centerDCM_rl="$(grep '(2005,105c)' $tdc | grep -Eo -- '[+-]?[0-9]+([.][0-9]{1,2})')"
+                  centerDCM="$centerDCM_ap $centerDCM_rl $centerDCM_fh"
+                  if [[ $centerDCM == *[[:digit:]]* ]]; then
+                    echo center sin: $centerSin center dcm: $centerDCM_ap $centerDCM_rl $centerDCM_fh
+                    if [[ "$centerSin" == *"$centerDCM_ap"* ]] &&
+                       [[ "$centerSin" == *"$centerDCM_rl"* ]] &&
+                       [[ "$centerSin" == *"$centerDCM_fh"* ]]; then
+                      mv -f "$tdc" "$TopLevelDIR"/dcmdump.txt
+                      echo Found a center position match up to digit 2
+                      echo $centerSin
+                      echo $centerDCM
+                      temp="$dcmdir"/stdout.json
+                      eval "dcm2json $dc $temp"
+                      mv -f "$temp" "$TopLevelDIR"/dcmdump.json
+                      # break
+                    fi
+                  fi
+                fi
+              done
+            fi
+
+            # We have to be sure that InstitutionName and ProtocolName are in the txt files
+            echo "(0008,0080) LO [HBCD site]                              #  30, 1 InstitutionName">> $txt
+            echo "(0018,1030) LO [WIP HYPER]                              #  10, 1 ProtocolName">> $txt
+              eval "dump2dcm $txt $dcm"
           fi
-        done;
-        for dl in $(find "$path" -type f -name "*.data");
-        do
-          tempfile=${dl##*/}
-          ini=${tempfile:0:1}
-          if ! [[ $ini == "." ]] ; then
-            mv -f "$dl" "$TopLevelDIR"/HYPER.data
-          fi
-        done;
-        # Find dcmtxtdump and convert to DICOM
-        for tx in $(find "$Staging" -type f -name "*.txt");
-        do
-          tempfile=${tx##*/}
-          ini=${tempfile:0:1}
-          if ! [[ $ini == "." ]] ; then
-            mv -f "$tx" "$TopLevelDIR"/dcmdump.txt
-          fi
-        done;
-        txt="$TopLevelDIR"/dcmdump.txt
-        dcm="$TopLevelDIR"/dcmdump.dcm
-        if ! [[ -f "$txt" ]]; then
-            Format="none"
-            echo No dcmdump txt file found
-        else
-          # We have to be sure that InstitutionName and ProtocolName are in the txt files
-          echo "(0008,0080) LO [HBCD site]                              #  30, 1 InstitutionName">> $txt
-          echo "(0018,1030) LO [WIP HYPER]                              #  10, 1 ProtocolName">> $txt
-            eval "dump2dcm $txt $dcm"
-        fi
-     fi
+       fi
+    fi
   fi
 done;
 
@@ -215,7 +297,6 @@ echo PSCID: $PSCID
 echo DCCID: $DCCID
 echo VisitID: $VisitID
 echo StudyInstanceUID: $StudyInstanceUID
-
 
 # Unable to parse format from files ... skip to end
 if [ $Format == "none" ]; then
@@ -418,7 +499,7 @@ do
 
     # If filename is already generated, then iterate the run counter and update filename:
     while [[ "${Filenames[*]}" =~ "${BIDS_NAME}" ]]; do
-      Counter=$(($Counter + 1))
+      ((Counter+=Counter))
       BIDS_NAME=sub-"$DCCID"_ses-"$VisitID"_acq-"$Acq"_"run-$Counter"_"$Suff".nii.gz
     done
     Filenames+=("${BIDS_NAME}")
