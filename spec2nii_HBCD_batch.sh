@@ -39,6 +39,10 @@ ZipLoc=$1
 ZipName=$(basename -- "$ZipLoc")
 extension="${ZipName##*.}"
 ZipName="${ZipName%.*}"
+extension2="${ZipName##*.}"
+if [[ $extension2 == "tar" ]]; then
+ZipName="${ZipName%.*}"
+fi
 IFS=$'_'
 ZipSplit=($ZipName)
 unset IFS;
@@ -405,6 +409,7 @@ do
   elif [[ $i == *"RepetitionTime"* ]]; then
       TR=${i#*:}
       TR=${TR::5}
+      echo TR $TR
         if [[ $Format == "sdat" ]] || [[ $Format == "data" ]]; then
             TR=$((TR / 1000))
         fi
@@ -415,6 +420,9 @@ do
 	elif [[ $i == *"ProtocolName"* ]]; then
 	    Prot=${i#*:}
 	    Prot=${Prot%?}
+  elif [[ $i == *"SequenceName"* ]]; then
+        Seq=${i#*:}
+        Seq=${Seq%?}
 	elif [[ $i == *"TxOffset"* ]]; then
 	    Offset=${i#*:}
 	    Offset=${Offset%?}
@@ -599,7 +607,8 @@ EOF
 fi
 
 # Update nii-header for GE HERCULES Sequence if needed
-if [ $Format == "ge" ];then
+echo Seq: $Seq
+if [[ $Format == "ge" ]] && ! [[ $Seq == *"hbcd2"* ]];then
   echo "GE"
   if [[ $Suff == *"ref"* ]]; then   # water reference
       echo "GE water"
