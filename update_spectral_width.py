@@ -22,14 +22,18 @@ def main():
         json_file = temp_nifti.replace(".nii.gz", ".json")
         with open(json_file, 'r') as f:
             json_data = json.load(f)
+        if "ReceiveCoilName" in json_data.keys():
+            if type(json_data["ReceiveCoilName"]) is dict:
+                if "Value" in json_data["ReceiveCoilName"].keys():
+                    json_data["ReceiveCoilName"] = json_data["ReceiveCoilName"]["Value"]
+                    print("Updated ReceiveCoilName to string in {}".format(json_file))
         if 'SpectralWidth' in json_data:
             print('SpectralWidth already exists in {}, skipping'.format(json_file))
-            continue
         else:
             json_data['SpectralWidth'] = spectral_width
-            with open(json_file, 'w') as f:
-                json.dump(json_data, f, indent=4)
-            print('Added SpectralWidth value of {} to {} (taken from fifth entry of pixdim field)'.format(spectral_width, json_file))
+        with open(json_file, 'w') as f:
+            json.dump(json_data, f, indent=4)
+        print('Added SpectralWidth value of {} to {} (taken from fifth entry of pixdim field)'.format(spectral_width, json_file))
 
 
 if __name__ == "__main__":
