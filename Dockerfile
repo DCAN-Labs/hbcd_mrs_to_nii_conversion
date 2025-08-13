@@ -50,6 +50,7 @@ RUN mkdir /code
 #RUN echo "source activate myenv" > ~/.bashrc 
 #RUN conda init bash --system
 RUN pip install spec2nii==0.7.0
+RUN pip install nibabel==5.3.2
 
 ##########################################################
 #THIS IS JUST FOR OVERWRITING THE SPEC2NII INSTALLATION###
@@ -72,6 +73,7 @@ RUN pip install spec2nii==0.7.0
 
 
 COPY spec2nii_HBCD_batch.sh /code/run.sh
+COPY update_spectral_width.py /code/update_spectral_width.py
 
 #ENTRYPOINT ["bash", "/opt/conda/etc/profile.d/conda.sh", "activate", "&&", "bash", "/code/run.sh"]
 ENTRYPOINT ["bash", "/code/run.sh"]

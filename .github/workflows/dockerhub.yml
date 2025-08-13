@@ -1,0 +1,90 @@
+name: Build & publish to Docker Hub (dcanumn/hbcd-mrs-conversion)
+
+on:
+  push:
+    branches: [ main, "test/**" ]   # main => normal; test/* => test build
+    tags: [ 'v*' ]                  # e.g. v1.2.3
+  pull_request:                     # build PRs but do not push
+  workflow_dispatch:
+    inputs:
+      flavor:
+        description: "normal or test (overrides branch detection)"
+        type: choice
+        default: normal
+        options: [normal, test]
+      version:
+        description: "Optional extra tag (e.g., 1.2.3). Empty = skip"
+        required: false
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  docker:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Enable QEMU (multi-arch)
+        uses: docker/setup-qemu-action@v3
+
+      - name: Setup Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Decide build flavor
+        id: flavor
+        shell: bash
+        run: |
+          IS_TEST="false"
+          # test/* branches or manual dispatch input => test build
+          if [[ "${{ github.event_name }}" == "workflow_dispatch" && "${{ github.event.inputs.flavor }}" == "test" ]]; then
+            IS_TEST="true"
+          elif [[ "${GITHUB_REF#refs/heads/}" == test* ]]; then
+            IS_TEST="true"
+          fi
+
+          if [[ "$IS_TEST" == "true" ]]; then
+            echo "flavor_line=suffix=-test,onlatest=true" >> $GITHUB_OUTPUT
+            echo "app_env=test" >> $GITHUB_OUTPUT
+          else
+            echo "flavor_line=" >> $GITHUB_OUTPUT
+            echo "app_env=prod" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Docker tags & labels
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: docker.io/dcanumn/hbcd-mrs-conversion
+          flavor: ${{ steps.flavor.outputs.flavor_line }}
+          tags: |
+            type=ref,event=branch
+            type=ref,event=tag
+            type=sha
+            type=raw,value=latest,enable={{is_default_branch}}
+            type=raw,value=${{ github.event.inputs.version }},enable=${{ github.event.inputs.version != '' }}
+
+      - name: Login to Docker Hub
+        if: github.event_name != 'pull_request'
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}  # set to 'dcanumn'
+          password: ${{ secrets.DOCKERHUB_TOKEN }}     # Docker Hub access token
+
+      - name: Build (and push)
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: ./Dockerfile
+          push: ${{ github.event_name != 'pull_request' }}
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          platforms: linux/amd64,linux/arm64
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+          build-args: |
+            APP_ENV=${{ steps.flavor.outputs.app_env }}
+          # If you have a multi-stage Dockerfile with a "test" target, uncomment:
+          # target: ${{ steps.flavor.outputs.app_env == 'test' && 'test' || '' }}

@@ -429,7 +429,7 @@ do
 	    if [[ $Offset == *"-1."* ]]; then
 	        Suff="svs"
 	    elif [[ $Offset == *"0.0"* ]]; then
-	        Suff="ref"
+	        Suff="mrsref"
             fi
 	elif [[ $i == *"dim_"* ]]; then
 	    # If coil dimension, then see which dimension it specifies:
@@ -457,13 +457,13 @@ do
       if [[ $f == *"act"* ]]; then
       	Suff="svs"
       elif [[ $f == *"ref"* ]]; then
-      	Suff="ref"
+      	Suff="mrsref"
       fi
       if [ $Format == "data" ] ;then
         if [[ $f == *"edited"* ]] ||[[ $f == *"short_te"* ]]; then
         	Suff="svs"
         elif [[ $f == *"ref"* ]]; then
-        	Suff="ref"
+        	Suff="mrsref"
         fi
       fi
     else
@@ -495,7 +495,7 @@ do
       if [[ $WatSup == *"T"* ]]; then
         Suff="svs"
       else
-        Suff="ref"
+        Suff="mrsref"
       fi
     fi
 
@@ -561,7 +561,7 @@ if [ $Format == "twix" ];then
   echo "Hyper Siemens Metabolites"
   if [[ $Prot == *"HYPER"* ]]||[[ $Prot == *"hyper"* ]]||[[ $Prot == *"ISTHMUS"* ]]||[[ $Prot == *"isthmus"* ]]; then
     # water reference
-    if [[ $Suff == *"ref"* ]]; then
+    if [[ $Suff == *"mrsref"* ]]; then
       Offset=0.0
 PYCMD=$(cat <<EOF
 import json
@@ -583,7 +583,7 @@ EOF
     eval "spec2nii insert $OutFile $JsonOutFile -o $OutputDIR"
     fi
     # shortTE
-    if [[ $Acq == *"shortTE"* ]] && ! [[ $Suff == *"ref"* ]]; then
+    if [[ $Acq == *"shortTE"* ]] && ! [[ $Suff == *"mrsref"* ]]; then
 PYCMD=$(cat <<EOF
 import json
 jsonHeaderFile = open("$JsonOutFile")
@@ -610,7 +610,7 @@ fi
 echo Seq: $Seq
 if [[ $Format == "ge" ]] && ! [[ $Seq == *"hbcd2"* ]];then
   echo "GE"
-  if [[ $Suff == *"ref"* ]]; then   # water reference
+  if [[ $Suff == *"mrsref"* ]]; then   # water reference
       echo "GE water"
       Offset=0.0
       if [[ $Acq == *"shortTE"* ]]; then
@@ -656,7 +656,7 @@ eval "spec2nii insert $OutFile $JsonOutFile -o $OutputDIR"
 fi # End if statement short TE or HERCULES water
 else   # metabolite data
   echo "GE metabolites"
-  if [[ $Acq == *"shortTE"* ]] && ! [[ $Suff == *"ref"* ]]; then
+  if [[ $Acq == *"shortTE"* ]] && ! [[ $Suff == *"mrsref"* ]]; then
 PYCMD=$(cat <<EOF
 import json
 jsonHeaderFile = open("$JsonOutFile")
@@ -861,6 +861,8 @@ do
     done
   fi
 done
+
+python /code/update_spectral_width.py $OutputDIR
 
 # Final message
 if (( $no_files == 4 ));then
