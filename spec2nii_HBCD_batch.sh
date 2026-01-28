@@ -17,7 +17,7 @@ ZipLoc=$1
 #
 # DEPENDENCIES:
 # Python packages
-# spec2nii v0.7.0 (https://github.com/wtclarke/spec2nii)
+# spec2nii v0.8.7 (https://github.com/wtclarke/spec2nii)
 #
 # other packages
 # Non unix OS users need to install the following package to expand tar and zip archives:
@@ -33,6 +33,12 @@ ZipLoc=$1
 #
 # first version C.W.Davies-Jenkins, Johns Hopkins 2023
 # modifed by Helge Zollner, Johns Hopkins 01-21-23
+# 
+# CWDJ robustness update 12-20-2025:
+#     spec2nii version checker
+#     Unzips multi-zip files
+#     Slight modification in data/list identification (no longer uses zip files)
+#     Removes whitespace from zip filenames for SUID extraction
 
 
 # Extract info from zip file name
@@ -43,6 +49,9 @@ extension2="${ZipName##*.}"
 if [[ $extension2 == "tar" ]]; then
 ZipName="${ZipName%.*}"
 fi
+# CWDJ-2025: Remove whitespace from zipfile name
+ZipName="${ZipName//[[:space:]]/}"
+
 IFS=$'_'
 ZipSplit=($ZipName)
 unset IFS;
@@ -138,6 +147,38 @@ echo Actual Run: $CounterStart
 # Unarchive the file (works for zip and tar):
 unar $ZipLoc -o $Staging -f -d
 
+# CWDJ-2025: Keep recursively extracting files until we find data, or no more nested zips remain
+process_dir() {
+    local dir="$1"
+    local extension_list=(".data" ".dat" ".7") # List of MRS data extensions
+
+    # Check if we arrived at the data yet
+    for ext in "${extension_list[@]}"; do        
+        found_files=$(find "$dir" -type f -name "*$ext")
+        if [[ -n "$found_files" ]]; then
+            echo "Unzipper found files with extension $ext:"
+            return
+        fi
+    done
+    # If not MRS data found (passed above check) we proceed, processing all zips in this directory
+    shopt -s nullglob # modify "*.zip" behavior to skip zipless directories during recursion
+    for z in "$dir"/*.zip; do
+        [ -e "$z" ] || continue
+        outdir="${z%.*}"
+        mkdir -p "$outdir"
+        unar -o "$outdir" -f -d "$z"
+        rm -f "$z"
+        process_dir "$outdir"   # recurse immediately into the new folder
+    done
+    shopt -u nullglob # unset behavior
+
+    # Recurse into subdirectories
+    for sub in "$dir"/*/; do
+        [ -d "$sub" ] && process_dir "$sub"
+    done
+}
+process_dir "$Staging"
+
 # Save path to top level directory
 TopLevelDIR=$Staging
 
@@ -156,23 +197,26 @@ do
     # Identification begins here
     # Philips SDAT/SPAR
     if [[ $extension == "SDAT" ]] || [[ $extension == "sdat" ]]; then
+       echo "Temp file found: $f"
        Format="sdat"
     fi
     # Siemens TWIX
     if [[ $extension == "dat" ]]; then
+       echo "Temp file found: $f"
        Format="twix"
     fi
     # GE p-files
     if [[ $extension == "7" ]]; then
+       echo "Temp file found: $f"
        Format="ge"
     fi
     # Philips data/list/dcmtxtdump following Sandeeps description
-    if [[ $extension == "zip" ]]; then
-      # Find zip archive with .data/.list pair ignore DICOM zip
-       if ! [[ $file == "Classic_DICOM.zip" ]]; then
+    # CWDJ: Now looks for data/list, not zip file.
+    if [[ $extension == "data" ]]; then
+         echo "Temp file found: $f"
          Format="data"
-         path="$Staging"/unar
-         unar "$f" -o $path -f -d
+         path=$Staging
+         
          # Move .data/.list pair in temporary directory
           for dl in $(find "$path" -type f -name "*.list");
           do
@@ -287,12 +331,13 @@ do
             echo "(0008,0080) LO [HBCD site]                              #  30, 1 InstitutionName">> $txt
             echo "(0018,1030) LO [WIP HYPER]                              #  10, 1 ProtocolName">> $txt
               eval "dump2dcm $txt $dcm"
-          fi
+
        fi
     fi
   fi
 done;
 
+echo "############################"
 echo Data format: $Format
 echo Location of zip file: $ZipLoc
 echo Location of output directory: $OutputDIR
@@ -301,6 +346,9 @@ echo PSCID: $PSCID
 echo DCCID: $DCCID
 echo VisitID: $VisitID
 echo StudyInstanceUID: $StudyInstanceUID
+S2Nv=$(spec2nii --version)
+echo "spec2nii version: $S2Nv"
+echo "############################"
 
 # Unable to parse format from files ... skip to end
 if [ $Format == "none" ]; then
